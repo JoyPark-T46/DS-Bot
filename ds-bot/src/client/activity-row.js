@@ -103,6 +103,22 @@ function useRowEntrances(replacing) {
   }, [])
 }
 
+// Running and queued background tasks for this Bot, shown even while its own
+// chat is idle. The result itself arrives as a message in the transcript.
+export function BackgroundNote({ sessionId, useRoster, useWork }) {
+  const roster = useRoster(value => value)
+  const bot = roster.byId[sessionId]
+  const key = useWork?.(work => JSON.stringify(work.background?.[bot?.id] ?? [])) ?? '[]'
+  const tasks = JSON.parse(key).filter(task => task.status === 'running' || task.status === 'queued')
+  if (bot === undefined || tasks.length === 0) return null
+  const running = tasks.some(task => task.status === 'running')
+  const title = tasks[0].title
+  const label = tasks.length === 1
+    ? t(running ? 'Working in the background: {title}' : 'Background work queued: {title}', { title })
+    : t(running ? 'Working in the background: {title} and {count} more' : 'Background work queued: {title} and {count} more', { title, count: tasks.length - 1 })
+  return h('div', { className: 'bt-bg-note', role: 'status' }, label)
+}
+
 export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, useSession, useWork, actions }) {
   const roster = useRoster(value => value)
   const running = useSessionStatus(map => map.get(sessionId)?.running === true)

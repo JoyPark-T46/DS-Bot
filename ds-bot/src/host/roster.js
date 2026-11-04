@@ -383,6 +383,10 @@ export function install(rt) {
       modelChanged = true
     }
     if (patch.permission !== undefined) await rt.setPermission(bot, patch.permission)
+    // Missing means on. Storing false is the only off state, so turning it back
+    // on drops the field and old saves keep today's behavior.
+    if (patch.interrupt === true) delete bot.interrupt
+    else if (patch.interrupt === false) bot.interrupt = false
     if (browserGrants !== undefined) {
       if (browserGrants === null) delete bot.browserGrants
       else bot.browserGrants = browserGrants

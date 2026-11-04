@@ -716,6 +716,22 @@ export function install(rt) {
         // Bot relay that lands inside it may claim: the first message of a turn
         // still claims it as today, a later one only joins it.
         const opened = entry.opened === true
+        // A background result never claims a turn that is already working, and it
+        // never steers. It waits, then comes back once that turn ends.
+        if (source?.kind === SOURCE_KIND && source.role === 'background') {
+          const text = textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '')
+          if (entry.turn === undefined) {
+            entry.pending = source
+            entry.pendingText = text
+          } else if (!opened && entry.info === undefined) {
+            entry.opened = true
+            entry.answers = true
+            claimTrigger(id, entry, source)
+          } else {
+            entry.later = [...(entry.later ?? []), { info: source, text }]
+          }
+          break
+        }
         if (entry.turn !== undefined && !bare(source)
           && (source?.kind === 'user' || source?.kind === REPLY_KIND || source?.kind === 'schedule' || source?.kind === SOURCE_KIND)) {
           entry.opened = true

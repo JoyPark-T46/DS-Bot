@@ -224,6 +224,13 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
         disabled: bot.private !== true && (isMainBot || inGroup || !bot.workDir),
         onChange: value => save({ private: value }),
       })),
+    h(Card, { title: t('Chat') },
+      h(SwitchRow, {
+        label: t('Answer you right away'),
+        hint: t('A message from you stops the current step so this Bot can answer. Messages from other Bots wait their turn.'),
+        on: bot.interrupt !== false,
+        onChange: value => save({ interrupt: value }),
+      })),
     h(Card, { title: t('Instructions') },
       h(Row, { label: t('What this Bot does'), hint: t('Its job on the team. Part of the Bot\'s system prompt.'), stack: true },
         h(InlineText, { label: t('Instructions'), value: bot.instructions, multiline: true, placeholder: t('What this Bot is responsible for…'), onSave: instructions => save({ instructions }) }))),
