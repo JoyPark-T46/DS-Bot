@@ -20,6 +20,7 @@
 //   看群 名 (read_group_chat) · 转告 名: 消息, also over several lines (message_bot) · 搜索：查询1 | 查询2 (web_search)
 //   进目录 路径 (working_directory with cd)
 //   插话 名: 消息 (message_bot when "now") · 排队 名: 消息 (message_bot when "queue") · 叫停 名: 原因 (stop_bot)
+//   后台 标题: 任务 (background_task)
 //   In a message from a Bot: 转告 名: 消息 (hands it on with message_bot) · 慢慢做 N (answers after N seconds)
 //   长文 N / long N (N×1000 characters) · 长任务 N [K] (N steps of K×1000, default 4)
 //   查记录 词 [词…] · 查锚点 part N #序号 · 查第 N 段 (read_own_chat)
@@ -428,6 +429,7 @@ function decide(body) {
   if ((order = /^插话\s*(\S+?)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('message_bot', { to: order[1], message: order[2], when: 'now' })]
   if ((order = /^排队\s*(\S+?)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('message_bot', { to: order[1], message: order[2], when: 'queue' })]
   if ((order = /^叫停\s*(\S+?)\s*[:：]\s*(.+)$/.exec(userText))) return [tool('stop_bot', { bot: order[1], reason: order[2] })]
+  if ((order = /^后台\s*(\S+?)\s*[:：]\s*([\s\S]+)$/.exec(userText)) && tools.has('background_task')) return [text('这件事我放到后台做，这个对话先空出来。'), tool('background_task', { title: order[1], task: order[2] })]
   if ((order = /^看群\s*(.+)$/.exec(userText))) return [tool('read_group_chat', { group: order[1].trim() })]
   // Memory: 记住[@话题] 事实 · 团队记住 事实 · 忘掉 事实 · 回忆 [词]
   if ((order = /^(团队)?记住(?:@(\S+))?\s*[:：]?\s*(.+)$/.exec(userText)) && tools.has('remember')) {

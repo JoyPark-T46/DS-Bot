@@ -1189,6 +1189,13 @@ var ZH = {
   Folder: "文件夹",
   Folders: "文件夹",
   Privacy: "隐私",
+  Chat: "对话",
+  "Answer you right away": "你的消息马上回答",
+  "A message from you stops the current step so this Bot can answer. Messages from other Bots wait their turn.": "你发来的消息会停下当前这一步，这个 Bot 马上回答。其他 Bot 的消息会排队等。",
+  "Working in the background: {title}": "后台正在做：{title}",
+  "Working in the background: {title} and {count} more": "后台正在做：{title}，另有 {count} 项",
+  "Background work queued: {title}": "后台工作在排队：{title}",
+  "Background work queued: {title} and {count} more": "后台工作在排队：{title}，另有 {count} 项",
   Private: "隐私",
   "Other Bots cannot read its folder, memory or chats, and you approve what it shares with them.": "其他 Bot 不能读取它的文件夹、记忆或对话；它分享给其他 Bot 的内容需要你批准。",
   "A Main Bot cannot be private.": "主 Bot 不能设为隐私 Bot。",
@@ -3556,6 +3563,7 @@ html[data-platform=darwin] header[class*="_header"]:has(.bt-head) :is(a,button,i
 [class*="_scroll"]:has(> [class*="_column"]){padding:calc(60px + env(safe-area-inset-top,0px)) calc(11px + env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) calc(16px + env(safe-area-inset-left,0px))!important}
 /* The goal island's pod hangs off the header over the transcript's first message. */
 body[data-bt-goal] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc(90px + env(safe-area-inset-top,0px))!important}
+.bt-bg-note{margin:0 0 8px;padding:6px 10px;border-radius:8px;background:var(--bt-hover);color:var(--bt-ink-2);font-size:12px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* The shell's running status only hosts the activity row (.bt-typing). */
 [data-chat-running]{display:block!important;width:100%;min-height:0!important;margin:0!important;padding:0!important}
 [data-chat-running]>span:not([role=status]){display:none!important}
@@ -9716,6 +9724,17 @@ function useRowEntrances(replacing) {
     };
   }, []);
 }
+function BackgroundNote({ sessionId, useRoster, useWork }) {
+  const roster = useRoster((value) => value);
+  const bot = roster.byId[sessionId];
+  const key = useWork?.((work) => JSON.stringify(work.background?.[bot?.id] ?? [])) ?? "[]";
+  const tasks = JSON.parse(key).filter((task) => task.status === "running" || task.status === "queued");
+  if (bot === void 0 || tasks.length === 0) return null;
+  const running = tasks.some((task) => task.status === "running");
+  const title = tasks[0].title;
+  const label = tasks.length === 1 ? t(running ? "Working in the background: {title}" : "Background work queued: {title}", { title }) : t(running ? "Working in the background: {title} and {count} more" : "Background work queued: {title} and {count} more", { title, count: tasks.length - 1 });
+  return (0, import_react20.createElement)("div", { className: "bt-bg-note", role: "status" }, label);
+}
 function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, useSession, useWork, actions }) {
   const roster = useRoster((value) => value);
   const running = useSessionStatus((map) => map.get(sessionId)?.running === true);
@@ -11311,6 +11330,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
     showGoal ? (0, import_react22.createElement)(GoalIsland, { room: room2, goal, view, open: goalOpen, composing: goalCompose, roomWork, roster, actions, pill }) : pill,
     (0, import_react22.createElement)("span", { className: "bt-sr", role: "status" }, memoryNotice ? t("Memory updated") : ""),
     (0, import_react22.createElement)(NewMessagePills, { key: sessionId, sessionId, useSessions, useUi, useTurnClock }),
+    (0, import_react22.createElement)(BackgroundNote, { sessionId, useRoster, useWork }),
     (0, import_react22.createElement)(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, useWork, actions })
   );
 }
@@ -14888,6 +14908,16 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
         on: bot.private === true,
         disabled: bot.private !== true && (isMainBot || inGroup || !bot.workDir),
         onChange: (value) => save({ private: value })
+      })
+    ),
+    (0, import_react33.createElement)(
+      Card2,
+      { title: t("Chat") },
+      (0, import_react33.createElement)(SwitchRow, {
+        label: t("Answer you right away"),
+        hint: t("A message from you stops the current step so this Bot can answer. Messages from other Bots wait their turn."),
+        on: bot.interrupt !== false,
+        onChange: (value) => save({ interrupt: value })
       })
     ),
     (0, import_react33.createElement)(

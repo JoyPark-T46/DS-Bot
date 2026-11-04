@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { currentPart, latestMemoryChange } from './text.js'
 import { ArrowUpIcon, CloseIcon, ArrowDownIcon, GoalIcon, MemoryIcon } from './icons.js'
 import { botState, BotAvatar, RoomAvatar } from './mark.js'
-import { ActivityIndicator } from './activity-row.js'
+import { ActivityIndicator, BackgroundNote } from './activity-row.js'
 import { clockLabel, openingTurn, unseenSince } from './cells.js'
 import { GoalIsland, goalView } from './goal.js'
 import { viewBottom } from './motion.js'
@@ -134,6 +134,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     showGoal ? h(GoalIsland, { room, goal, view, open: goalOpen, composing: goalCompose, roomWork, roster, actions, pill }) : pill,
     h('span', { className: 'bt-sr', role: 'status' }, memoryNotice ? t('Memory updated') : ''),
     h(NewMessagePills, { key: sessionId, sessionId, useSessions, useUi, useTurnClock }),
+    h(BackgroundNote, { sessionId, useRoster, useWork }),
     h(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, useWork, actions }))
 }
 

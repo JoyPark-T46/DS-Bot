@@ -17,6 +17,9 @@ export function install(rt) {
   const headerFor = (role, fromName, roomName, audience, note = 'new message', deferred = false, { resumed = false, retried = false, resent = false, asker } = {}) => {
     // What came back for work another Bot gave this one says where its answer goes.
     const goesOn = asker === undefined ? '' : ` · for the work ${asker} asked you for; your answer goes to ${asker} once everything you handed on is back`
+    if (role === 'background') return deferred
+      ? '[Background task · you read it during your last task; tell the user the result now]'
+      : '[Background task]'
     if (deferred && role === 'reply') return `[Reply from ${fromName} · you read it during your last task; go on with the work it is for now${goesOn}]`
     if (deferred && role === 'report') return `[Group chat "${roomName}" · replies to your post · you read them during your last task; go on with the work they are for now${goesOn}]`
     if (deferred && role !== 'room') return `[Message from ${fromName} · you read it during your last task; answer it now]`
