@@ -105,6 +105,8 @@ function useRowEntrances(replacing) {
 
 export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, useSession, useWork, actions }) {
   const roster = useRoster(value => value)
+  const bot = roster.byId[sessionId]
+  const room = roster.roomsById[sessionId]
   const running = useSessionStatus(map => map.get(sessionId)?.running === true)
   const turnAt = useWork?.(work => work.turns?.[sessionId])
   // Until the host reports the turn's start, the clock counts from when this window
@@ -114,9 +116,15 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   else if (runAt.current === 0) runAt.current = Date.now()
   const liveKey = useLive(state => JSON.stringify(state[sessionId] ?? {}))
   const steeredAt = useWork?.(work => work.steered?.[sessionId])
+  const backgroundTitle = useWork?.(work => {
+    const list = bot === undefined ? undefined : work.background?.[bot.id]
+    if (!Array.isArray(list) || list.length === 0) return ''
+    const item = list.find(entry => entry.status === 'running') ?? list[0]
+    const extra = list.length - 1
+    const title = item?.title ?? ''
+    return title === '' ? '' : extra > 0 ? `${title} +${extra}` : title
+  }) ?? ''
   const pendingInput = useSession(snapshot => freshInputAt(snapshot?.pendingSubmissions, steeredAt))
-  const bot = roster.byId[sessionId]
-  const room = roster.roomsById[sessionId]
   // The one switch the row names: a working-folder move jumps the chat to a fresh
   // part while a turn is not running, so without it the conversation just empties.
   const moveAt = useWork?.((work) => {
@@ -185,7 +193,13 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   useEffect(() => { if (!running) actions.clearLive(sessionId) }, [running, sessionId])
   // Only rows that take the activity row's place grow out of it.
   useRowEntrances(() => leaving.current || Date.now() - endedAt.current < 300)
-  const host = useRunningHost(running || moveAt !== 0)
+  const showBackground = backgroundTitle !== '' && !visible && moveAt === 0
+  const host = useRunningHost(running || moveAt !== 0 || showBackground)
+  if (showBackground && host) {
+    return createPortal(h('div', { className: 'bt-typing' },
+      bot ? h(BotMark, { bot, size: 28, state: 'working', live: true }) : null,
+      h('span', { className: 'bt-typing-text' }, h(Shimmer, null, t('Background: {title}', { title: backgroundTitle })))), host)
+  }
   if (!host || phase === null || !shown) return null
   return createPortal(h('div', { className: 'bt-typing', 'data-exiting': phase === 'out' ? '' : undefined, 'aria-hidden': true },
     bot ? h(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : h(RoomAvatar, { room, roster, size: 28 }),

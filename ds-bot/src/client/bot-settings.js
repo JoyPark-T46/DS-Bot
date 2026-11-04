@@ -216,6 +216,13 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),
         h(FolderMenu, { value: bot.workDir, actions, run, onPick: workDir => save({ workDir }) }))),
+    h(Card, { title: t('Your messages') },
+      h(SwitchRow, {
+        label: t('Answer you first'),
+        hint: t('A message from you stops the current turn so this Bot can answer it. Messages from other Bots wait.'),
+        on: bot.interrupt !== false,
+        onChange: value => save({ interrupt: value }),
+      })),
     h(Card, { title: t('Privacy') },
       h(SwitchRow, {
         label: t('Private'),

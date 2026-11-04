@@ -35,6 +35,7 @@ export function install(rt) {
     // the header stays neutral about who changed the profile.
     if (role === 'update') return '[Your profile was updated — follow the latest version]'
     if (role === 'secret') return '[Secret card]'
+    if (role === 'background') return `[Background task "${note ?? 'task'}"]`
     if (audience === 'user') return `[Message from ${fromName} · the user sees your reply here]`
     return `[Message from ${fromName}]`
   }
@@ -79,6 +80,7 @@ export function install(rt) {
       ...(retried ? { retried: true } : {}),
       ...(askedBy ? { askedBy } : {}),
       ...(fromRoomId ? { senderRoomId: fromRoomId } : {}),
+      ...(role === 'background' && note ? { note } : {}),
     }
     const targetSessionId = sessionId ?? rt.chatOf(toId)
     await rt.ensureCapabilities(targetSessionId)

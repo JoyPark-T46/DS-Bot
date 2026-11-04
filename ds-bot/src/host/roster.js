@@ -145,7 +145,7 @@ export function install(rt) {
     return holdName('bot', cleanName, () => buildBot(cleanName, options))
   }
 
-  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false }) {
+  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, interrupt }) {
     const cleanAvatarValue = cleanAvatar(avatar)
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultBotModel()
@@ -173,6 +173,7 @@ export function install(rt) {
         ...(effortId ? { effort: effortId } : {}),
         ...(dir ? { workDir: dir } : {}),
         instructions: String(instructions).trim(),
+        ...(interrupt === false ? { interrupt: false } : {}),
         createdAt: Date.now(),
         createdBy: createdBy ?? null,
         capabilities: [],
@@ -308,6 +309,7 @@ export function install(rt) {
       // A copy of a Bot on the model's own default stays on it (null marks the
       // explicit Default pick); else the create would inherit the profile level.
       effort: served ? (bot.effort ?? null) : undefined,
+      ...(bot.interrupt === false ? { interrupt: false } : {}),
       workDir,
       copyOf: bot.id,
     })
@@ -383,6 +385,8 @@ export function install(rt) {
       modelChanged = true
     }
     if (patch.permission !== undefined) await rt.setPermission(bot, patch.permission)
+    if (patch.interrupt === false) bot.interrupt = false
+    else if (patch.interrupt === true) delete bot.interrupt
     if (browserGrants !== undefined) {
       if (browserGrants === null) delete bot.browserGrants
       else bot.browserGrants = browserGrants
@@ -692,6 +696,7 @@ export function install(rt) {
     if (rt.isMain(id)) throw new Error('A Main Bot cannot be deleted; remove its Main Bot role first')
     // Before the Bot and its group Sessions leave the state, which the archive reads.
     const archived = rt.archiveBotMemory(id)
+    await rt.dropBackground?.(id)
     const current = rt.chatOf(id)
     // Questions and exchange turns are kept per Session, so every part of the chat is cleared.
     const parts = new Set([id, current, ...(bot.segments ?? []).map(segment => segment.sessionId)])

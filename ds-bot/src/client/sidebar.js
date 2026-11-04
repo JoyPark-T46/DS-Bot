@@ -78,13 +78,18 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t('a group chat'), groups[0], groups.length - 1) : null
   const waits = workKeys(useWork ? useWork(work => JSON.stringify(work.waiting?.[id] ?? null)) : 'null')
   const waitsFor = state === 'waiting' ? waitingFor(roster, waits) : ''
+  const backgroundTitle = useWork?.(work => {
+    const list = work.background?.[id]
+    if (!Array.isArray(list) || list.length === 0) return ''
+    return list.find(item => item.status === 'running')?.title ?? list[0]?.title ?? ''
+  }) ?? ''
   if (bot.hidden && !active && !main) return null
   const onContextMenu = (event) => {
     event.preventDefault()
     actions.openMenu({ kind: 'bot', id, x: event.clientX, y: event.clientY })
   }
   const pinned = bot.pinned === true && !tile
-  const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', waitsFor, approval ? t('Waiting for your approval') : alert ? t('Waiting for your answer') : '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
+  const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', backgroundTitle && !running && !away ? t('Background: {title}', { title: backgroundTitle }) : '', waitsFor, approval ? t('Waiting for your approval') : alert ? t('Waiting for your answer') : '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
   if (tile && wide) {
     return h('div', { className: 'bt-tile-wrap' }, h('button', {
       type: 'button', className: 'bt-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
@@ -104,8 +109,9 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, bot.name), pinned ? h(PinMark) : null),
     runningLine ? h('span', { className: 'bt-row-preview' }, runningLine)
       : awayLine ? h('span', { className: 'bt-row-preview' }, awayLine)
-        : waitsFor ? h('span', { className: 'bt-row-preview' }, waitsFor)
-          : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
+        : backgroundTitle ? h('span', { className: 'bt-row-preview' }, h(Shimmer, null, t('Background: {title}', { title: backgroundTitle })))
+          : waitsFor ? h('span', { className: 'bt-row-preview' }, waitsFor)
+            : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
   wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true })
     : !wide && !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null)
 }

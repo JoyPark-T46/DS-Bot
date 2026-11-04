@@ -1,9 +1,13 @@
-// In a Bot's private chat a user steer must reach the Bot at once, not at the
-// next DSH step boundary. Two mechanisms:
-//  - a foreground shell call detaches into the jobs registry on a steer and
-//    returns DSH's promoted result, so the step ends while the command runs on;
-//  - a running model call is cancelled (hook reason) and the steer is moved to
-//    the front of next-turn, so a fresh turn claims it at once.
+// In a Bot's private chat a message from the user must reach the Bot at once,
+// not at the next DSH step boundary. A message from another Bot, a group, a
+// scheduled task, or a background result does not. Two mechanisms:
+//  - a foreground shell call detaches into the jobs registry and returns DSH's
+//    promoted result, so the step ends while the command runs on;
+//  - the running turn is cancelled (hook reason), whether it is in a model call
+//    or in tools, and the user's message is moved to the front of next-turn, so
+//    a fresh turn claims it at once. DSH still waits for a tool body that has
+//    already started; the cancel is what asks that body to stop.
+// Off when the Bot's `interrupt` setting is false.
 import { isAbsolute, resolve } from 'node:path'
 import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { STEER_CUT } from './constants.js'
@@ -32,23 +36,31 @@ export function install(rt) {
     if (entry === undefined) state.set(id, entry = { phase: 'boundary', jobsByCall: new Map(), jobWaiters: new Map(), steerWaiters: new Set(), killedJobs: new Set(), cutting: false })
     return entry
   }
-  const isUserSteer = (event) => event?.data?.target === 'next-step'
-    && (event.data.inserted ?? []).some(message => message?.source?.kind === 'user')
+  const userInserts = (event) => (event?.data?.inserted ?? []).filter(message => message?.source?.kind === 'user')
   const wake = (set, value) => { const waiters = [...set]; set.clear(); for (const fn of waiters) fn(value) }
+  // Default on. Only an explicit false keeps the old "wait for this step" behavior.
+  const interrupts = (id) => rt.botOf(rt.chatOwners.get(id))?.interrupt !== false
+  const userMessage = (list) => [...(list ?? [])].reverse().find(message => message?.source?.kind === 'user')
 
-  // A user steer into a private chat must cut a running model call. The check runs
+  // A user message into a private chat must cut the running turn. The check runs
   // off the event that queued it, never inside the append that emitted the event.
-  const maybeCut = (id) => {
+  // `preferred` is the message that just arrived, so an older queued user message
+  // is not moved ahead of it.
+  const maybeCut = (id, preferred) => {
     const entry = rt.live.get(id)
     const agent = liveAgent(id)
-    if (!privateOf(id) || rt.readOnly?.() !== undefined || entry === undefined || agent === undefined) return
+    if (!privateOf(id) || !interrupts(id) || rt.readOnly?.() !== undefined || entry === undefined || agent === undefined) return
     if ([...(rt.switchJobs?.() ?? [])].some(job => job?.botId === rt.chatOwners.get(id) && job.roomId === undefined)) return
     const track = stateOf(id)
-    if (track.phase !== 'model' || track.cutting) return
-    if (entry.turn === undefined || (entry.calls?.size ?? 0) > 0 || agent.status !== 'running') return
-    const nextStep = agent.inbox?.nextStep ?? []
-    const last = [...nextStep].reverse().find(message => message?.source?.kind === 'user')
+    if ((track.phase !== 'model' && track.phase !== 'tools') || track.cutting) return
+    // A model step that still has tool calls in flight is not the model call itself.
+    if (entry.turn === undefined || agent.status !== 'running') return
+    if (track.phase === 'model' && (entry.calls?.size ?? 0) > 0) return
+    const last = preferred?.source?.kind === 'user' ? preferred
+      : userMessage(agent.inbox?.nextStep) ?? userMessage(agent.inbox?.nextTurn)
     if (last === undefined) return
+    const waiting = [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]
+    if (!waiting.some(message => message?.id === last.id)) return
     track.cutting = true
     rt.markSteerCut(id)
     agent.inbox.remove(last.id)
@@ -59,7 +71,7 @@ export function install(rt) {
       agent.inbox.prepend('next-turn', last)
     }
   }
-  const scheduleCut = (id) => { queueMicrotask(() => maybeCut(id)) }
+  const scheduleCut = (id, message) => { queueMicrotask(() => maybeCut(id, message)) }
 
   // Renders one jobs.read() result the way tool-jobs' renderModelDelta does:
   // stdout and unlabeled chunks joined, then a [stderr] section, then a
@@ -221,7 +233,10 @@ export function install(rt) {
       case 'step/start': {
         track.phase = 'model'
         const agent = liveAgent(id)
-        if ((agent?.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user')) scheduleCut(id)
+        // A steer sits in next-step; a queued user message sits in next-turn. DSH
+        // claims the message that opened this step before step/start, so whatever
+        // is still here arrived while the turn was already running.
+        if (userMessage(agent?.inbox?.nextStep) !== undefined || userMessage(agent?.inbox?.nextTurn) !== undefined) scheduleCut(id)
         break
       }
       case 'assistant/message':
@@ -254,12 +269,14 @@ export function install(rt) {
         }
         break
       }
-      case 'agent/inbox/spliced':
-        if (isUserSteer(event)) {
+      case 'agent/inbox/spliced': {
+        const inserted = userInserts(event)
+        if (inserted.length > 0) {
           wake(track.steerWaiters, true)
-          scheduleCut(id)
+          scheduleCut(id, inserted.at(-1))
         }
         break
+      }
     }
   })
 }

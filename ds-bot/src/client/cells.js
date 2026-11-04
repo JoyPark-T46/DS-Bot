@@ -671,6 +671,12 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
       // A profile notice is the user's edit landing in the Bot's chat, not a peer
       // message: show it as an event, with no exchange to open.
       if (source.role === 'update') return h('div', { className: 'bt-event' }, t('Profile updated'))
+      if (source.role === 'background') {
+        const text = stripHeader(contentText(data.content)).replace(/\s+/g, ' ').trim()
+        const title = typeof source.note === 'string' && source.note !== '' ? source.note : t('Background task')
+        const shown = text.slice(0, 280)
+        return h('div', { className: 'bt-event' }, shown === '' ? t('Background · {title}', { title }) : t('Background · {title}: {text}', { title, text: shown }))
+      }
       if (source.role === 'post') {
         // A post logged into a running round already shows there, not again as a trigger.
         if (source.logged !== undefined) return null

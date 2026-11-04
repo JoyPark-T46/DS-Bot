@@ -706,6 +706,13 @@ var ZH = {
   "{name} was cut off by a restart again and stopped": "{name} 的工作又被重启打断，已停下",
   "Picked up its work after a restart": "重启后接着做之前的工作",
   "Profile updated": "资料已更新",
+  "Your messages": "你的消息",
+  "Answer you first": "先回答你",
+  "A message from you stops the current turn so this Bot can answer it. Messages from other Bots wait.": "你发来的消息会停掉当前这一轮，让这个 Bot 先回答你。其他 Bot 的消息会等着，不打断。",
+  "Background: {title}": "后台：{title}",
+  "Background task": "后台任务",
+  "Background · {title}": "后台 · {title}",
+  "Background · {title}: {text}": "后台 · {title}：{text}",
   "Asked to make the tool call it wrote as text": "工具调用被写成了文字，已让它重新调用",
   "Went on after the failed turn": "上一轮失败后，已让它接着做",
   "A Bot": "一个 Bot",
@@ -9150,6 +9157,12 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
       if (source.role === "kickoff" || source.role === "room" || source.role === "goal") return null;
       if (source.role === "secret" || deferred) return null;
       if (source.role === "update") return (0, import_react19.createElement)("div", { className: "bt-event" }, t("Profile updated"));
+      if (source.role === "background") {
+        const text = stripHeader(contentText(data.content)).replace(/\s+/g, " ").trim();
+        const title = typeof source.note === "string" && source.note !== "" ? source.note : t("Background task");
+        const shown = text.slice(0, 280);
+        return (0, import_react19.createElement)("div", { className: "bt-event" }, shown === "" ? t("Background · {title}", { title }) : t("Background · {title}: {text}", { title, text: shown }));
+      }
       if (source.role === "post") {
         if (source.logged !== void 0) return null;
         if (source.failed !== void 0 || source.resumed === true || source.stopped === true || source.done === true) return null;
@@ -9718,6 +9731,8 @@ function useRowEntrances(replacing) {
 }
 function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, useSession, useWork, actions }) {
   const roster = useRoster((value) => value);
+  const bot = roster.byId[sessionId];
+  const room2 = roster.roomsById[sessionId];
   const running = useSessionStatus((map) => map.get(sessionId)?.running === true);
   const turnAt = useWork?.((work) => work.turns?.[sessionId]);
   const runAt = (0, import_react20.useRef)(0);
@@ -9725,9 +9740,15 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, us
   else if (runAt.current === 0) runAt.current = Date.now();
   const liveKey = useLive((state) => JSON.stringify(state[sessionId] ?? {}));
   const steeredAt = useWork?.((work) => work.steered?.[sessionId]);
+  const backgroundTitle = useWork?.((work) => {
+    const list = bot === void 0 ? void 0 : work.background?.[bot.id];
+    if (!Array.isArray(list) || list.length === 0) return "";
+    const item = list.find((entry) => entry.status === "running") ?? list[0];
+    const extra = list.length - 1;
+    const title = item?.title ?? "";
+    return title === "" ? "" : extra > 0 ? `${title} +${extra}` : title;
+  }) ?? "";
   const pendingInput = useSession((snapshot) => freshInputAt(snapshot?.pendingSubmissions, steeredAt));
-  const bot = roster.byId[sessionId];
-  const room2 = roster.roomsById[sessionId];
   const moveAt = useWork?.((work) => {
     const entry = bot !== void 0 ? work.bots?.[bot.id] : room2 !== void 0 ? work.rooms?.[room2.id]?.find((item) => item.self === true) : void 0;
     return entry?.switching === true && entry.folder === true && entry.roomId === void 0 ? entry.since : 0;
@@ -9789,7 +9810,16 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, us
     if (!running) actions.clearLive(sessionId);
   }, [running, sessionId]);
   useRowEntrances(() => leaving.current || Date.now() - endedAt.current < 300);
-  const host = useRunningHost(running || moveAt !== 0);
+  const showBackground = backgroundTitle !== "" && !visible && moveAt === 0;
+  const host = useRunningHost(running || moveAt !== 0 || showBackground);
+  if (showBackground && host) {
+    return (0, import_react_dom2.createPortal)((0, import_react20.createElement)(
+      "div",
+      { className: "bt-typing" },
+      bot ? (0, import_react20.createElement)(BotMark, { bot, size: 28, state: "working", live: true }) : null,
+      (0, import_react20.createElement)("span", { className: "bt-typing-text" }, (0, import_react20.createElement)(Shimmer, null, t("Background: {title}", { title: backgroundTitle })))
+    ), host);
+  }
   if (!host || phase === null || !shown) return null;
   return (0, import_react_dom2.createPortal)((0, import_react20.createElement)(
     "div",
@@ -10078,13 +10108,18 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t("a group chat"), groups[0], groups.length - 1) : null;
   const waits = workKeys(useWork ? useWork((work) => JSON.stringify(work.waiting?.[id] ?? null)) : "null");
   const waitsFor = state === "waiting" ? waitingFor(roster, waits) : "";
+  const backgroundTitle = useWork?.((work) => {
+    const list = work.background?.[id];
+    if (!Array.isArray(list) || list.length === 0) return "";
+    return list.find((item) => item.status === "running")?.title ?? list[0]?.title ?? "";
+  }) ?? "";
   if (bot.hidden && !active && !main) return null;
   const onContextMenu = (event) => {
     event.preventDefault();
     actions.openMenu({ kind: "bot", id, x: event.clientX, y: event.clientY });
   };
   const pinned = bot.pinned === true && !tile;
-  const label = [bot.name, main ? t("Main Bot") : "", pinned ? t("Pinned") : "", running || away ? t("Working") : "", waitsFor, approval ? t("Waiting for your approval") : alert ? t("Waiting for your answer") : "", unread ? t("Unread activity") : ""].filter(Boolean).join(", ");
+  const label = [bot.name, main ? t("Main Bot") : "", pinned ? t("Pinned") : "", running || away ? t("Working") : "", backgroundTitle && !running && !away ? t("Background: {title}", { title: backgroundTitle }) : "", waitsFor, approval ? t("Waiting for your approval") : alert ? t("Waiting for your answer") : "", unread ? t("Unread activity") : ""].filter(Boolean).join(", ");
   if (tile && wide) {
     return (0, import_react21.createElement)("div", { className: "bt-tile-wrap" }, (0, import_react21.createElement)(
       "button",
@@ -10122,7 +10157,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
       "span",
       { className: "bt-row-body" },
       (0, import_react21.createElement)("span", { className: "bt-row-name" }, (0, import_react21.createElement)("span", { className: "bt-row-title" }, bot.name), pinned ? (0, import_react21.createElement)(PinMark) : null),
-      runningLine ? (0, import_react21.createElement)("span", { className: "bt-row-preview" }, runningLine) : awayLine ? (0, import_react21.createElement)("span", { className: "bt-row-preview" }, awayLine) : waitsFor ? (0, import_react21.createElement)("span", { className: "bt-row-preview" }, waitsFor) : preview ? (0, import_react21.createElement)("span", { className: "bt-row-preview" }, preview) : null
+      runningLine ? (0, import_react21.createElement)("span", { className: "bt-row-preview" }, runningLine) : awayLine ? (0, import_react21.createElement)("span", { className: "bt-row-preview" }, awayLine) : backgroundTitle ? (0, import_react21.createElement)("span", { className: "bt-row-preview" }, (0, import_react21.createElement)(Shimmer, null, t("Background: {title}", { title: backgroundTitle }))) : waitsFor ? (0, import_react21.createElement)("span", { className: "bt-row-preview" }, waitsFor) : preview ? (0, import_react21.createElement)("span", { className: "bt-row-preview" }, preview) : null
     ) : null,
     wide && unread && !active ? (0, import_react21.createElement)("span", { className: "bt-unread", "aria-hidden": true }) : !wide && !active && (alert || unread) ? (0, import_react21.createElement)("span", { className: `bt-dot${alert ? " bt-dot-wait" : ""}`, "aria-hidden": true }) : null
   );
@@ -14878,6 +14913,16 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
         (0, import_react33.createElement)("span", { className: "bt-set-copy" }, (0, import_react33.createElement)("span", { className: "bt-bs-label" }, t("Folder"))),
         (0, import_react33.createElement)(FolderMenu, { value: bot.workDir, actions, run: run2, onPick: (workDir) => save({ workDir }) })
       )
+    ),
+    (0, import_react33.createElement)(
+      Card2,
+      { title: t("Your messages") },
+      (0, import_react33.createElement)(SwitchRow, {
+        label: t("Answer you first"),
+        hint: t("A message from you stops the current turn so this Bot can answer it. Messages from other Bots wait."),
+        on: bot.interrupt !== false,
+        onChange: (value) => save({ interrupt: value })
+      })
     ),
     (0, import_react33.createElement)(
       Card2,
