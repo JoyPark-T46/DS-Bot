@@ -445,8 +445,46 @@ test('steer cut: user steer during model phase cancels with hook and moves steer
   await stop()
 })
 
-test('steer cut: no cut during tools phase or for a non-Bot session', async () => {
+test('steer cut: a user message during tools cancels; a peer message does not', async () => {
   const { emit, stop, agent, calls } = await start()
+  const dm = 'dm-a'
+  await emit(dm, 'turn/start', { turn: 1 })
+  await emit(dm, 'step/start', { turn: 1, step: 1 })
+  await emit(dm, 'assistant/message', { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'tool-call' }] } })
+  const peer = { id: 'peer', content: [{ type: 'text', text: 'from a Bot' }], source: { kind: SOURCE_KIND, role: 'request' } }
+  agent.inbox.nextStep.push(peer)
+  await emit(dm, 'agent/inbox/spliced', { target: 'next-step', inserted: [peer] })
+  assert.equal(calls.find(c => c[0] === 'cancel'), undefined)
+  const steer = userMessage('go')
+  agent.inbox.nextStep.push(steer)
+  await emit(dm, 'agent/inbox/spliced', { target: 'next-step', inserted: [steer] })
+  const cancel = calls.find(c => c[0] === 'cancel')
+  assert.deepEqual(cancel?.[1], { kind: 'hook', reason: STEER_CUT })
+  assert.deepEqual(cancel?.[2], { keepInbox: true })
+  assert.equal(agent.inbox.nextTurn[0]?.id, steer.id)
+  assert.equal(agent.inbox.nextStep.some(message => message.id === 'peer'), true)
+  await emit('plain', 'agent/inbox/spliced', { target: 'next-step', inserted: [userMessage('nope')] })
+  assert.equal(calls.filter(c => c[0] === 'cancel').length, 1)
+  await stop()
+})
+
+test('steer cut: a queued user message interrupts a busy turn', async () => {
+  const { emit, stop, agent, calls } = await start()
+  const dm = 'dm-a'
+  await emit(dm, 'turn/start', { turn: 1 })
+  await emit(dm, 'step/start', { turn: 1, step: 1 })
+  await emit(dm, 'assistant/message', { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'tool-call' }] } })
+  const queued = userMessage('are you there')
+  agent.inbox.nextTurn.push(queued)
+  await emit(dm, 'agent/inbox/spliced', { target: 'next-turn', inserted: [queued] })
+  assert.deepEqual(calls.find(c => c[0] === 'cancel')?.[1], { kind: 'hook', reason: STEER_CUT })
+  assert.equal(agent.inbox.nextTurn[0]?.id, queued.id)
+  await stop()
+})
+
+test('steer cut: interrupt off leaves the running turn alone', async () => {
+  const { emit, stop, rt, agent, calls } = await start()
+  rt.botOf('a').interrupt = false
   const dm = 'dm-a'
   await emit(dm, 'turn/start', { turn: 1 })
   await emit(dm, 'step/start', { turn: 1, step: 1 })
@@ -455,8 +493,7 @@ test('steer cut: no cut during tools phase or for a non-Bot session', async () =
   agent.inbox.nextStep.push(steer)
   await emit(dm, 'agent/inbox/spliced', { target: 'next-step', inserted: [steer] })
   assert.equal(calls.find(c => c[0] === 'cancel'), undefined)
-  await emit('plain', 'agent/inbox/spliced', { target: 'next-step', inserted: [steer] })
-  assert.equal(calls.find(c => c[0] === 'cancel'), undefined)
+  assert.equal(agent.inbox.nextStep[0]?.id, steer.id)
   await stop()
 })
 
