@@ -56,6 +56,13 @@ runInNewContext(outputFiles[0].text, {
   navigator: { clipboard: { writeText: async (text) => { copied.push(text) } } },
   setTimeout: (run) => { timers.push(run); return timers.length },
   clearTimeout: () => {},
+  // The model picker reads the window for its anchor and its motion preference.
+  window: {
+    matchMedia: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }),
+    innerWidth: 1200, innerHeight: 800, visualViewport: undefined,
+    addEventListener: () => {}, removeEventListener: () => {},
+  },
+  document: { activeElement: null },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
 const { FailureCell, accountModel, failureText, fixesFor, retryShown, installLocale } = module.exports
@@ -136,20 +143,48 @@ function cell({ code, message = '', turn = 3, blocked, model = models[0].ref, la
 }
 const labels = list => list.filter(entry => !entry.node.props.className?.includes('bt-fail-copy')).map(entry => entry.label)
 
-test('a missing key offers the key first, the sign-in and another model, but no retry while the host holds it', () => {
+test('a missing key names the default model that is not set up here, then the key, the sign-in and a fallback', () => {
   const side = cell({ code: 'MISSING_CREDENTIAL', message: 'llm-deepseek: no API key for provider route', blocked: { code: 'MISSING_CREDENTIAL', provider: 'deepseek-official', at: 1 } })
   const tree = side.render()
-  assert.match(textOf(walk(tree, node => node.props?.className === 'bt-fail-text')[0]), /^Chief's model has no API key yet\.$/)
+  assert.equal(textOf(walk(tree, node => node.props?.className === 'bt-fail-text')[0]), "Chief's default model DeepSeek Chat is not set up here yet.")
   const list = side.buttons(tree)
-  assert.deepEqual(labels(list), ['Enter API key', 'Sign in with a DeepSeek account', 'Pick another model'])
+  assert.deepEqual(labels(list), ['Enter API key', 'Sign in with a DeepSeek account', 'Use another model'])
   assert.equal(list[0].primary, true)
   assert.equal(list.filter(entry => entry.primary).length, 1)
   // The raw text is only under Technical details.
   assert.equal(walk(tree, node => node.props?.className === 'bt-fail-text').some(node => textOf(node).includes('no API key for provider')), false)
   assert.ok(side.tech(tree).includes('llm-deepseek: no API key for provider route'))
   list[1].node.props.onClick()
-  list[2].node.props.onClick()
-  assert.deepEqual(side.calls, [['signIn'], ['showDetails', 'chief-part']])
+  assert.deepEqual(side.calls, [['signIn']])
+})
+
+test('only a failure the host still holds names the model; a fixed one keeps the code\'s own words', () => {
+  const held = cell({ code: 'MISSING_CREDENTIAL', blocked: { code: 'MISSING_CREDENTIAL', provider: 'deepseek-official', at: 1 } })
+  assert.equal(textOf(walk(held.render(), node => node.props?.className === 'bt-fail-text')[0]), "Chief's default model DeepSeek Chat is not set up here yet.")
+  const lifted = cell({ code: 'MISSING_CREDENTIAL' })
+  assert.equal(textOf(walk(lifted.render(), node => node.props?.className === 'bt-fail-text')[0]), "Chief's model has no API key yet.")
+})
+
+test('Use another model opens the picker of the models that work here, and a pick moves the Bot onto it', async () => {
+  const needsKey = { ref: 'router/needs-key', provider: 'router', providerName: 'Router', name: 'Blocked', needsKey: true }
+  const side = cell({ code: 'MISSING_CREDENTIAL', blocked: { code: 'MISSING_CREDENTIAL', provider: 'deepseek-official', at: 1 }, catalog: [...models, needsKey] })
+  const tree = side.render()
+  const [trigger] = side.buttons(tree).filter(entry => entry.label === 'Use another model')
+  assert.equal(trigger.node.props['aria-haspopup'], 'menu')
+  const [menu] = walk(tree, node => node.type?.name === 'ModelMenu')
+  // The failing model and the ones that need a key here are no fallback.
+  assert.deepEqual(menu.props.roster.models.map(model => model.ref), ['router/flash'])
+  assert.equal(menu.props.withEfforts, false)
+  menu.props.onPick('router/flash')
+  await tick()
+  assert.deepEqual(side.calls, [['updateBot', 'chief', { model: 'router/flash' }]])
+})
+
+test('with no other model that works here, the card offers only setting this one up', () => {
+  const side = cell({ code: 'MISSING_CREDENTIAL', blocked: { code: 'MISSING_CREDENTIAL', provider: 'deepseek-official', at: 1 }, catalog: [models[0]], signIn: false })
+  const list = side.buttons(side.render())
+  assert.deepEqual(labels(list), ['Enter API key'])
+  assert.equal(walk(side.render(), node => node.type?.name === 'ModelMenu').length, 0)
 })
 
 test('Enter API key opens the key card for the failing provider, with the DeepSeek link', () => {
@@ -207,7 +242,7 @@ test('AUTH names the provider and status from the host, and never shows the raw 
   const side = cell({ code: 'AUTH', message: 'Authentication Fails (sk-... is invalid)', blocked: { code: 'AUTH', status: 401, requestId: 'req-1', provider: 'deepseek-official', at: 1 } })
   const tree = side.render()
   assert.equal(textOf(walk(tree, node => node.props?.className === 'bt-fail-text')[0]), 'DeepSeek did not accept the current API key (401).')
-  assert.deepEqual(labels(side.buttons(tree)), ['Enter the key again', 'Use a DeepSeek account instead', 'Pick another model'])
+  assert.deepEqual(labels(side.buttons(tree)), ['Enter the key again', 'Use a DeepSeek account instead', 'Use another model'])
   assert.deepEqual(side.tech(tree), ['AUTH', '401', 'req-1'])
   assert.equal(JSON.stringify(tree).includes('Authentication Fails'), false)
 })
@@ -246,7 +281,7 @@ test('an account sign-in failure asks to sign in again, or offers another model 
     list[0].node.props.onClick()
     assert.deepEqual(side.calls, [['signIn']])
     const alone = cell({ code, signIn: false, blocked: { code, at: 1 } })
-    assert.deepEqual(labels(alone.buttons(alone.render())), ['Pick another model'])
+    assert.deepEqual(labels(alone.buttons(alone.render())), ['Use another model'])
   }
 })
 
@@ -294,7 +329,7 @@ test('the Bot takes the DSH default model when it is an account model', () => {
 test('already signed in, the card moves the Bot onto the account at once', () => {
   const side = cell({ code: 'MISSING_CREDENTIAL', blocked: { code: 'MISSING_CREDENTIAL', provider: 'deepseek-official', at: 1 }, account: { status: 'credential-stored' }, catalog: withAccount })
   const list = side.buttons(side.render())
-  assert.deepEqual(labels(list), ['Enter API key', 'Use the DeepSeek account', 'Pick another model'])
+  assert.deepEqual(labels(list), ['Enter API key', 'Use the DeepSeek account', 'Use another model'])
   list[1].node.props.onClick()
   assert.deepEqual(side.calls, [['updateBot', 'chief', { model: 'deepseek-account/deepseek-v4-flash' }]])
 })
@@ -346,7 +381,7 @@ test('a failed turn another Bot asked for offers its fixes but no Retry', () => 
   assert.equal(textOf(walk(tree, node => node.props?.className === 'bt-fail-text')[0]), 'The model service failed.')
   const key = cell({ code: 'MISSING_CREDENTIAL', asked: true })
   const list = key.buttons(key.render())
-  assert.deepEqual(labels(list), ['Enter API key', 'Sign in with a DeepSeek account', 'Pick another model'])
+  assert.deepEqual(labels(list), ['Enter API key', 'Sign in with a DeepSeek account', 'Use another model'])
   assert.equal(list[0].primary, true)
   // A turn of the user's own in the same chat keeps its Retry.
   const own = cell({ code: 'SERVER', asked: [2] })
@@ -425,8 +460,10 @@ test('the copy and fix tables go by code alone', () => {
   assert.equal(retryShown('QUOTA', { code: 'QUOTA' }), true)
 })
 
-// The words a Chinese interface may still show in English (design note, 用词).
-const ENGLISH_ALLOWED = /\b(DeepSeek|DS Bot|Bot|API|Key|Harness|DSH|HTTP|Router|Chief)\b/gi
+// The words a Chinese interface may still show in English (design note, 用词): the
+// product's own names, and the model names the catalog gives, which are data.
+const NAMES = [...new Set([...models, ...withAccount].map(model => model.name))].join('|')
+const ENGLISH_ALLOWED = new RegExp(`\\b(${NAMES}|DeepSeek|DS Bot|Bot|API|Key|Harness|DSH|HTTP|Router|Chief)\\b`, 'gi')
 
 test('in a Chinese interface every repair card state reads in Chinese, outside Technical details', () => {
   const dicts = new Map()

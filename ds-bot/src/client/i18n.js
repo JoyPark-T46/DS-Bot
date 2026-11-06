@@ -184,6 +184,7 @@ const ZH = {
   'Models and API keys': '模型和 API Key',
   // A failed turn in a Bot's chat
   "{name}'s model has no API key yet.": '{name} 用的模型还没有 API Key。',
+  "{name}'s default model {model} is not set up here yet.": '{name} 当前默认的模型 {model} 还没有配置好。',
   'This API key is not in the right format.': '这个 API Key 的格式不对。',
   '{provider} did not accept the current API key.': '{provider} 不接受现在的 API Key。',
   '{provider} did not accept the current API key ({status}).': '{provider} 不接受现在的 API Key（{status}）。',
@@ -206,6 +207,7 @@ const ZH = {
   'Use the DeepSeek account': '改用 DeepSeek 账号',
   'Sign in again': '重新登录',
   'Pick another model': '换个模型',
+  'Use another model': '换一个模型',
   'Top up ↗': '去充值 ↗',
   Retry: '重试',
   'Retrying…': '正在重试…',

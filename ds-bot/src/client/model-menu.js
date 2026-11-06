@@ -255,7 +255,9 @@ export function useAnchoredMenu() {
 // levels of the shown model when it has them.
 // `onPick`/`onPickEffort` replace saving to the Bot, for a Bot that does not exist yet.
 // `withEfforts: false` keeps the Thinking section out, for a pick that has no level of its own.
-export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onPickEffort, withEfforts = true }) {
+// `trigger` replaces the trigger's copy with a label of its own, and `triggerClass`
+// its button classes, for a picker opened from another surface such as a repair card.
+export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onPickEffort, withEfforts = true, trigger, triggerClass }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu()
   const shown = modelOf(bot, roster)
   const current = bot.model ?? bot.appliedModel
@@ -287,15 +289,18 @@ export function ModelMenu({ bot, roster, actions, run, wide = false, onPick, onP
   const hasEfforts = withEfforts && effortStops(reasoning).length > 0
   return h(Fragment, null,
     h('button', {
-      ref: button, type: 'button', className: 'bt-model-trigger', 'data-wide': wide || undefined,
-      'aria-haspopup': 'menu', 'aria-expanded': isOpen, 'aria-label': t('Model: {model}', { model: shown?.name ?? t('none') }),
-      'data-missing': shown !== undefined && !shown.served && models.length > 0 ? '' : undefined, onClick: toggle,
+      ref: button, type: 'button', className: triggerClass ?? 'bt-model-trigger', 'data-wide': wide || undefined,
+      'aria-haspopup': 'menu', 'aria-expanded': isOpen,
+      'aria-label': trigger ?? t('Model: {model}', { model: shown?.name ?? t('none') }),
+      'data-missing': trigger === undefined && shown !== undefined && !shown.served && models.length > 0 ? '' : undefined, onClick: toggle,
     },
-    h('span', { className: 'bt-model-copy' },
-      h('span', { className: 'bt-model-name' }, shown?.name ?? t('Choose a model')),
-      shown ? h('span', { className: 'bt-model-provider' }, shown.served || models.length === 0
-        ? (!withEfforts || effortLabel === undefined ? shown.provider : `${shown.provider} · ${effortLabel}`)
-        : t('{provider} · not available', { provider: shown.provider })) : null),
+    trigger === undefined
+      ? h('span', { className: 'bt-model-copy' },
+        h('span', { className: 'bt-model-name' }, shown?.name ?? t('Choose a model')),
+        shown ? h('span', { className: 'bt-model-provider' }, shown.served || models.length === 0
+          ? (!withEfforts || effortLabel === undefined ? shown.provider : `${shown.provider} · ${effortLabel}`)
+          : t('{provider} · not available', { provider: shown.provider })) : null)
+      : h('span', { className: 'bt-model-copy' }, h('span', { className: 'bt-model-name' }, trigger)),
     h(Caret)),
     shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': t('Model for {name}', { name: bot.name }), style: shownPlace, 'data-leaving': leaving || undefined },
       h('div', { className: 'bt-model-scroll' },
