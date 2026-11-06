@@ -1,7 +1,7 @@
 import { createElement as h, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { currentPart, isHiddenTurn } from './text.js'
 import { CheckIcon, CopyIcon } from './icons.js'
-import { ModelKeyCard, manageModels } from './model-menu.js'
+import { ModelKeyCard, ModelMenu, manageModels, modelOf } from './model-menu.js'
 import { knownFailure } from './diagnostics.js'
 import { hostText, t } from './i18n.js'
 
@@ -24,10 +24,15 @@ const KEY_CODES = new Set(['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH'])
 // the same way, so Retry waits for the fix.
 const CREDENTIAL_CODES = new Set([...KEY_CODES, ...SIGNED_OUT])
 
-// The sentence for one failure. `status` is the HTTP status, when the host has it.
-export function failureText(code, { name, provider, status }) {
+// The sentence for one failure. `status` is the HTTP status, when the host has it;
+// `model` is the name of the model that failed, when the catalog still serves it.
+export function failureText(code, { name, provider, status, model }) {
   switch (code) {
-    case 'MISSING_CREDENTIAL': return t("{name}'s model has no API key yet.", { name })
+    // A model that someone configured elsewhere can be listed here without the key
+    // that runs it. The card says so first, then offers to set it up or to fall back.
+    case 'MISSING_CREDENTIAL': return model === undefined
+      ? t("{name}'s model has no API key yet.", { name })
+      : t("{name}'s default model {model} is not set up here yet.", { name, model })
     case 'INVALID_CREDENTIAL': return t('This API key is not in the right format.')
     case 'AUTH': return status === undefined
       ? t('{provider} did not accept the current API key.', { provider })
@@ -66,13 +71,21 @@ export function fixesFor(code, { canSignIn, official, topUp, onAccount = false }
 
 export const retryShown = (code, blocked) => !CREDENTIAL_CODES.has(code) || blocked === undefined
 
+// The models this workbench can run as the fallback of a failed one: every model whose
+// provider is set up here, except the one that just failed. A model that needs a key of
+// its own would fail the same way, so it is no fallback.
+export function fallbackChoices(roster, bot) {
+  const current = bot?.model ?? bot?.appliedModel
+  return (roster?.models ?? []).filter(model => model.ref !== current && !model.needsKey)
+}
+
 const FIX_LABELS = {
   key: () => t('Enter API key'),
   rekey: () => t('Enter the key again'),
   'sign-in': signedIn => (signedIn ? t('Use the DeepSeek account') : t('Sign in with a DeepSeek account')),
   'use-account': () => t('Use a DeepSeek account instead'),
   'sign-in-again': () => t('Sign in again'),
-  model: () => t('Pick another model'),
+  model: () => t('Use another model'),
   'top-up': () => t('Top up ↗'),
 }
 
@@ -155,7 +168,12 @@ export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions 
   const [joining, setJoining] = useState(null)
   const blocked = bot?.blocked?.code === data.code ? bot.blocked : undefined
   const provider = blocked?.provider ?? providerOf(bot, roster)
-  const text = failureText(data.code, { name: bot?.name ?? t('This Bot'), provider: providerName(roster, provider), status: blocked?.status })
+  // The host holds the failing route on the Bot while the failure stands, so the model it
+  // named is still the Bot's own. Once the host lifts it, a fix or a pick moved the Bot,
+  // and the line goes back to the code's own words.
+  const failed = blocked === undefined || bot === undefined ? undefined : modelOf(bot, roster)
+  const text = failureText(data.code, { name: bot?.name ?? t('This Bot'), provider: providerName(roster, provider), status: blocked?.status, model: failed?.name })
+  const fallbacks = bot === undefined ? [] : fallbackChoices(roster, bot)
   const facts = failureFacts(data, blocked)
   const current = bot !== undefined && currentPart(bot) === sessionId && !later
   // The key route never takes the account's credential, so a sign-in alone leaves the Bot
@@ -199,9 +217,16 @@ export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions 
     'sign-in': viaAccount,
     'use-account': viaAccount,
     'sign-in-again': () => actions.signIn(),
-    model: actions.showDetails ? () => actions.showDetails(sessionId) : undefined,
   }
-  const fixes = fixesFor(data.code, { canSignIn, official, topUp: topUp !== undefined, onAccount: provider === ACCOUNT }).filter(fix => fix === 'top-up' || runs[fix] !== undefined)
+  // A model picked from the fallback picker becomes the Bot's; the host lifts what this
+  // model's failure blocked, and Retry leads from there.
+  const pickFallback = (ref) => {
+    setError('')
+    void Promise.resolve(actions.updateBot(bot.id, { model: ref }))
+      .catch(failure => setError(hostText(failure?.message ?? String(failure))))
+  }
+  const fixes = fixesFor(data.code, { canSignIn, official, topUp: topUp !== undefined, onAccount: provider === ACCOUNT })
+    .filter(fix => fix === 'top-up' || (fix === 'model' ? fallbacks.length > 0 : runs[fix] !== undefined))
   // A turn another Bot asked for answers that Bot, which was already told it failed.
   // Retry would answer the user's last message instead, so it is not offered.
   const asked = isHiddenTurn(roster, sessionId, data.turn)
@@ -223,9 +248,20 @@ export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions 
     return h('button', { key: fix, type: 'button', className, 'aria-expanded': toggles ? keying : undefined, onClick: () => runs[fix]() }, FIX_LABELS[fix](signedIn))
   }
   const retryButton = primary => h('button', { key: 'retry', type: 'button', className: primary ? 'bt-send bt-fail-go' : 'bt-soft bt-soft-sm', disabled: retry !== 'idle', onClick: resume }, retry === 'idle' ? t('Retry') : t('Retrying…'))
+  // The fallback fix opens the model picker over the card, so a pick stays one step and
+  // shows the models that work here before the Bot moves onto one.
+  const control = (fix, primary) => {
+    if (fix !== 'model') return button(fix, primary)
+    return h(ModelMenu, {
+      key: fix, bot, actions, onPick: pickFallback, withEfforts: false,
+      roster: { ...roster, models: fallbacks },
+      trigger: FIX_LABELS.model(),
+      triggerClass: primary ? 'bt-model-trigger bt-fail-go' : 'bt-model-trigger',
+    })
+  }
   const row = retryFirst
-    ? [retryButton(true), ...fixes.map(fix => button(fix, false))]
-    : [...fixes.map((fix, index) => button(fix, index === 0)), retrying ? retryButton(false) : null]
+    ? [retryButton(true), ...fixes.map(fix => control(fix, false))]
+    : [...fixes.map((fix, index) => control(fix, index === 0)), retrying ? retryButton(false) : null]
   // With nothing to do here the card reads as one a later turn moved past.
   if (!row.some(Boolean)) return settled()
   return h('div', { className: 'bt-fail', role: 'status' },
@@ -245,6 +281,11 @@ export const TURN_ERROR_CSS = `
 .bt-fail-text{min-width:0;overflow-wrap:anywhere}
 .bt-fail-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-left:15px}
 .bt-fail-actions .bt-fail-go{height:28px;padding:0 12px;font:inherit;font-size:12px}
+.bt-fail-actions .bt-model-trigger{display:inline-flex;align-items:center;gap:6px;height:28px;min-height:28px;padding:0 12px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:12px;cursor:pointer}
+.bt-fail-actions .bt-model-trigger:hover,.bt-fail-actions .bt-model-trigger[aria-expanded=true]{background:var(--bt-active)}
+.bt-fail-actions .bt-model-trigger.bt-fail-go{background:var(--bt-accent);color:var(--bt-accent-ink)}
+.bt-fail-actions .bt-model-trigger .bt-model-copy{flex:none}
+.bt-fail-actions .bt-model-trigger svg{width:12px;height:12px}
 .bt-fail-link{display:inline-flex;align-items:center;box-sizing:border-box;text-decoration:none}
 .bt-fail:has(.bt-model-key){width:min(480px,86%)}
 .bt-fail .bt-q.bt-model-key{margin:0 0 0 15px;width:auto;padding:0;background:none;box-shadow:none;border-radius:0;animation:none}

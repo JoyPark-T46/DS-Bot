@@ -220,6 +220,7 @@ var ZH = {
   "Models and API keys": "模型和 API Key",
   // A failed turn in a Bot's chat
   "{name}'s model has no API key yet.": "{name} 用的模型还没有 API Key。",
+  "{name}'s default model {model} is not set up here yet.": "{name} 当前默认的模型 {model} 还没有配置好。",
   "This API key is not in the right format.": "这个 API Key 的格式不对。",
   "{provider} did not accept the current API key.": "{provider} 不接受现在的 API Key。",
   "{provider} did not accept the current API key ({status}).": "{provider} 不接受现在的 API Key（{status}）。",
@@ -242,6 +243,7 @@ var ZH = {
   "Use the DeepSeek account": "改用 DeepSeek 账号",
   "Sign in again": "重新登录",
   "Pick another model": "换个模型",
+  "Use another model": "换一个模型",
   "Top up ↗": "去充值 ↗",
   Retry: "重试",
   "Retrying…": "正在重试…",
@@ -12681,7 +12683,7 @@ function useAnchoredMenu() {
   }, [anchor, tick]);
   return { isOpen: place !== null, shownPlace, leaving, button, menu, open, close };
 }
-function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPickEffort, withEfforts = true }) {
+function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPickEffort, withEfforts = true, trigger, triggerClass }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu();
   const shown = modelOf(bot, roster);
   const current = bot.model ?? bot.appliedModel;
@@ -12718,20 +12720,20 @@ function ModelMenu({ bot, roster, actions, run: run2, wide = false, onPick, onPi
       {
         ref: button,
         type: "button",
-        className: "bt-model-trigger",
+        className: triggerClass ?? "bt-model-trigger",
         "data-wide": wide || void 0,
         "aria-haspopup": "menu",
         "aria-expanded": isOpen,
-        "aria-label": t("Model: {model}", { model: shown?.name ?? t("none") }),
-        "data-missing": shown !== void 0 && !shown.served && models.length > 0 ? "" : void 0,
+        "aria-label": trigger ?? t("Model: {model}", { model: shown?.name ?? t("none") }),
+        "data-missing": trigger === void 0 && shown !== void 0 && !shown.served && models.length > 0 ? "" : void 0,
         onClick: toggle
       },
-      (0, import_react25.createElement)(
+      trigger === void 0 ? (0, import_react25.createElement)(
         "span",
         { className: "bt-model-copy" },
         (0, import_react25.createElement)("span", { className: "bt-model-name" }, shown?.name ?? t("Choose a model")),
         shown ? (0, import_react25.createElement)("span", { className: "bt-model-provider" }, shown.served || models.length === 0 ? !withEfforts || effortLabel === void 0 ? shown.provider : `${shown.provider} · ${effortLabel}` : t("{provider} · not available", { provider: shown.provider })) : null
-      ),
+      ) : (0, import_react25.createElement)("span", { className: "bt-model-copy" }, (0, import_react25.createElement)("span", { className: "bt-model-name" }, trigger)),
       (0, import_react25.createElement)(Caret)
     ),
     shownPlace ? (0, import_react_dom6.createPortal)((0, import_react25.createElement)(
@@ -12970,10 +12972,12 @@ var ACCOUNT_MODELS_WAIT_MS = 2e4;
 var SIGNED_OUT = /* @__PURE__ */ new Set(["ACCOUNT_SIGN_IN_REQUIRED", "ACCOUNT_SIGNED_OUT", "ACCOUNT_TOKEN_INVALID"]);
 var KEY_CODES = /* @__PURE__ */ new Set(["MISSING_CREDENTIAL", "INVALID_CREDENTIAL", "AUTH"]);
 var CREDENTIAL_CODES = /* @__PURE__ */ new Set([...KEY_CODES, ...SIGNED_OUT]);
-function failureText2(code, { name, provider, status }) {
+function failureText2(code, { name, provider, status, model }) {
   switch (code) {
+    // A model that someone configured elsewhere can be listed here without the key
+    // that runs it. The card says so first, then offers to set it up or to fall back.
     case "MISSING_CREDENTIAL":
-      return t("{name}'s model has no API key yet.", { name });
+      return model === void 0 ? t("{name}'s model has no API key yet.", { name }) : t("{name}'s default model {model} is not set up here yet.", { name, model });
     case "INVALID_CREDENTIAL":
       return t("This API key is not in the right format.");
     case "AUTH":
@@ -13018,13 +13022,17 @@ function fixesFor(code, { canSignIn, official, topUp, onAccount = false }) {
   }
 }
 var retryShown = (code, blocked) => !CREDENTIAL_CODES.has(code) || blocked === void 0;
+function fallbackChoices(roster, bot) {
+  const current = bot?.model ?? bot?.appliedModel;
+  return (roster?.models ?? []).filter((model) => model.ref !== current && !model.needsKey);
+}
 var FIX_LABELS = {
   key: () => t("Enter API key"),
   rekey: () => t("Enter the key again"),
   "sign-in": (signedIn) => signedIn ? t("Use the DeepSeek account") : t("Sign in with a DeepSeek account"),
   "use-account": () => t("Use a DeepSeek account instead"),
   "sign-in-again": () => t("Sign in again"),
-  model: () => t("Pick another model"),
+  model: () => t("Use another model"),
   "top-up": () => t("Top up ↗")
 };
 var NO_SUBSCRIBE2 = () => () => {
@@ -13093,7 +13101,9 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
   const [joining, setJoining] = (0, import_react26.useState)(null);
   const blocked = bot?.blocked?.code === data.code ? bot.blocked : void 0;
   const provider = blocked?.provider ?? providerOf(bot, roster);
-  const text = failureText2(data.code, { name: bot?.name ?? t("This Bot"), provider: providerName(roster, provider), status: blocked?.status });
+  const failed = blocked === void 0 || bot === void 0 ? void 0 : modelOf(bot, roster);
+  const text = failureText2(data.code, { name: bot?.name ?? t("This Bot"), provider: providerName(roster, provider), status: blocked?.status, model: failed?.name });
+  const fallbacks = bot === void 0 ? [] : fallbackChoices(roster, bot);
   const facts = failureFacts(data, blocked);
   const current = bot !== void 0 && currentPart(bot) === sessionId && !later;
   const moveToAccount = () => {
@@ -13149,10 +13159,13 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
     rekey: keyHere ? () => setKeying((value) => !value) : keyElsewhere,
     "sign-in": viaAccount,
     "use-account": viaAccount,
-    "sign-in-again": () => actions.signIn(),
-    model: actions.showDetails ? () => actions.showDetails(sessionId) : void 0
+    "sign-in-again": () => actions.signIn()
   };
-  const fixes = fixesFor(data.code, { canSignIn, official, topUp: topUp !== void 0, onAccount: provider === ACCOUNT }).filter((fix) => fix === "top-up" || runs[fix] !== void 0);
+  const pickFallback = (ref) => {
+    setError("");
+    void Promise.resolve(actions.updateBot(bot.id, { model: ref })).catch((failure) => setError(hostText(failure?.message ?? String(failure))));
+  };
+  const fixes = fixesFor(data.code, { canSignIn, official, topUp: topUp !== void 0, onAccount: provider === ACCOUNT }).filter((fix) => fix === "top-up" || (fix === "model" ? fallbacks.length > 0 : runs[fix] !== void 0));
   const asked = isHiddenTurn(roster, sessionId, data.turn);
   const retrying = !asked && typeof actions.resume === "function" && retryShown(data.code, blocked);
   const retryFirst = retrying && (fixes.length === 0 || CREDENTIAL_CODES.has(data.code));
@@ -13173,7 +13186,20 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
     return (0, import_react26.createElement)("button", { key: fix, type: "button", className, "aria-expanded": toggles ? keying : void 0, onClick: () => runs[fix]() }, FIX_LABELS[fix](signedIn));
   };
   const retryButton = (primary) => (0, import_react26.createElement)("button", { key: "retry", type: "button", className: primary ? "bt-send bt-fail-go" : "bt-soft bt-soft-sm", disabled: retry !== "idle", onClick: resume }, retry === "idle" ? t("Retry") : t("Retrying…"));
-  const row = retryFirst ? [retryButton(true), ...fixes.map((fix) => button(fix, false))] : [...fixes.map((fix, index) => button(fix, index === 0)), retrying ? retryButton(false) : null];
+  const control = (fix, primary) => {
+    if (fix !== "model") return button(fix, primary);
+    return (0, import_react26.createElement)(ModelMenu, {
+      key: fix,
+      bot,
+      actions,
+      onPick: pickFallback,
+      withEfforts: false,
+      roster: { ...roster, models: fallbacks },
+      trigger: FIX_LABELS.model(),
+      triggerClass: primary ? "bt-model-trigger bt-fail-go" : "bt-model-trigger"
+    });
+  };
+  const row = retryFirst ? [retryButton(true), ...fixes.map((fix) => control(fix, false))] : [...fixes.map((fix, index) => control(fix, index === 0)), retrying ? retryButton(false) : null];
   if (!row.some(Boolean)) return settled();
   return (0, import_react26.createElement)(
     "div",
@@ -13194,6 +13220,11 @@ var TURN_ERROR_CSS = `
 .bt-fail-text{min-width:0;overflow-wrap:anywhere}
 .bt-fail-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-left:15px}
 .bt-fail-actions .bt-fail-go{height:28px;padding:0 12px;font:inherit;font-size:12px}
+.bt-fail-actions .bt-model-trigger{display:inline-flex;align-items:center;gap:6px;height:28px;min-height:28px;padding:0 12px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:12px;cursor:pointer}
+.bt-fail-actions .bt-model-trigger:hover,.bt-fail-actions .bt-model-trigger[aria-expanded=true]{background:var(--bt-active)}
+.bt-fail-actions .bt-model-trigger.bt-fail-go{background:var(--bt-accent);color:var(--bt-accent-ink)}
+.bt-fail-actions .bt-model-trigger .bt-model-copy{flex:none}
+.bt-fail-actions .bt-model-trigger svg{width:12px;height:12px}
 .bt-fail-link{display:inline-flex;align-items:center;box-sizing:border-box;text-decoration:none}
 .bt-fail:has(.bt-model-key){width:min(480px,86%)}
 .bt-fail .bt-q.bt-model-key{margin:0 0 0 15px;width:auto;padding:0;background:none;box-shadow:none;border-radius:0;animation:none}
